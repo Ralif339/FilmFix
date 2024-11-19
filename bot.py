@@ -8,6 +8,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 import config
+from collections import defaultdict
+
+
 
 # Конфигурация бота
 API_TOKEN = config.API_TOKEN
@@ -38,6 +41,16 @@ CREATE TABLE IF NOT EXISTS Movies (
 )
 """)
 conn.commit()
+
+last_bot_messages = defaultdict(lambda: None)  # Хранит ID последних сообщений бота по chat_id
+
+async def delete_previous_message(chat_id: int, bot_message_id: int):
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=bot_message_id)
+    except Exception:
+        pass  # Игнорируем ошибки, если сообщение уже удалено или недоступно
+
+
 
 # Команда /start
 @router.message(Command("start"))
@@ -120,6 +133,34 @@ async def save_video(message: Message):
         await message.reply(f"Фильм '{title}' успешно сохранён!")
     except sqlite3.IntegrityError:
         await message.reply("Фильм с таким названием уже существует.")
+
+
+# Обработка всех сообщений, на которые нет обработчиков
+@router.message()
+async def unknown_message_handler(message: Message):
+    # Удаляем сообщение пользователя
+    try:
+        await message.delete()
+    except Exception:
+        pass  # Игнорируем ошибки удаления
+
+    # Проверяем, было ли отправлено предыдущее сообщение
+    chat_id = message.chat.id
+    last_message_id = last_bot_messages[chat_id]
+
+    # Если есть предыдущее сообщение, удаляем его
+    if last_message_id:
+        await delete_previous_message(chat_id, last_message_id)
+
+    # Отправляем новое сообщение
+    bot_message = await message.answer(
+        "Команда не распознана. Введите /start для начала работы с ботом."
+    )
+
+    # Сохраняем ID нового сообщения
+    last_bot_messages[chat_id] = bot_message.message_id
+
+
 
 # Основной запуск бота
 async def main():
